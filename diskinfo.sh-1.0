@@ -1,0 +1,93 @@
+#!/bin/sh
+
+# diskinfo.sh Ver. 1.0 16 Jan. 2014 (jknudsen@cph.dk)
+# Script which extracts and presents certain types of information
+# regarding disks, disk partitions, LVM volumes and presentes it
+# in a simple yet quite informative view. Can be executed by a
+# non privileged user.
+
+# Disk devicenames to exclude presented in a way that is suitable
+# for use directly in a egrep -v "<regular_expression>" format
+# for example: "sr|fd|loop"
+# suitable for use 
+DISK_DEVICENAMES_EXCLUDE="sr|fd|loop"
+
+# Extract actual disk devicenames in use from /proc/diskstats
+ALL_DISKS="`cat /proc/diskstats | awk '{ print $3 }' |\
+          egrep -v "${DISK_DEVICENAMES_EXCLUDE}" | sort`"
+SCSI_DISKS="`cat /proc/diskstats | awk '{ print $3 }' |\
+          egrep -v "${DISK_DEVICENAMES_EXCLUDE}" | sort | egrep 'sd' `"
+LVM_DISKS="`cat /proc/diskstats | awk '{ print $3 }' |\
+          egrep -v "${DISK_DEVICENAMES_EXCLUDE}" | sort | egrep 'dm-' `"
+
+#echo "ALL  Disks: $ALL_DISKS"
+echo ""
+echo "   ---   DISK OVERVIEW   ---"
+echo "SCSI Disks: `echo -n $SCSI_DISKS`"
+echo "LVM  Disks: `echo -n $LVM_DISKS`"
+
+echo ""
+echo "   ---   DISK DETAILS   ---"
+
+# SCSI disks details
+for DISK in `cat /proc/diskstats | awk '{ print $3 }' |\
+    egrep -v "${DISK_DEVICENAMES_EXCLUDE}" | sort | egrep 'sd'`
+do
+  echo -n "${DISK}: "
+  if [ "`echo ${DISK} | egrep \"sd[[:alpha:]][[:digit:]]\"`" = ""  ] ; then
+    echo -n "  "
+  else
+    echo -n " "
+  fi
+  DISKBLKSIZE="`cat /proc/partitions | grep "${DISK}$" | awk '{ print $3 }' `"
+  DISKSIZE=`echo "scale=2; ${DISKBLKSIZE} / 1024 / 1024" | bc -l`
+  echo -n "${DISKSIZE}G "
+  TABLENGTH="`echo \"scale=0; ( ${DISKSIZE} + 0.5 ) / 1\" | bc -l`"
+  if [ "${TABLENGTH}" -lt 1 ] ; then
+    echo -n " "
+  fi
+  if [ "${TABLENGTH}" -lt 10 ] ; then
+    echo -n " "
+  fi
+  if [ "${TABLENGTH}" -lt 100 ] ; then
+    echo -n " "
+  fi
+  if [ "${TABLENGTH}" -lt 1000 ] ; then
+    echo -n " "
+  fi
+  echo -n "   `/sbin/blkid -s TYPE | grep "${DISK}:"  | awk -F\\" '{ print $2 }'`  "
+  echo -n "`mount | grep "${DISK} " | awk '{ print $3 }'` "
+  echo
+done
+
+# LVM disks details
+for DISK in `cat /proc/diskstats | awk '{ print $3 }' |\
+    egrep -v "${DISK_DEVICENAMES_EXCLUDE}" | sort | egrep 'dm-'`
+do
+  echo -n "${DISK}:  "
+  DISKBLKSIZE="`cat /proc/partitions | grep "${DISK}$" | awk '{ print $3 }' `"
+  DISKSIZE=`echo "scale=2; ${DISKBLKSIZE} / 1024 / 1024" | bc -l`
+  echo -n "${DISKSIZE}G  "
+  if [ "${TABLENGTH}" -lt 1 ] ; then
+    echo -n " "
+  fi
+  TABLENGTH="`echo \"scale=0; ( ${DISKSIZE} + 0.5 ) / 1\" | bc -l`"
+  if [ "${TABLENGTH}" -lt 10 ] ; then
+    echo -n " "
+  fi
+  if [ "${TABLENGTH}" -lt 100 ] ; then
+    echo -n " "
+  fi
+  if [ "${TABLENGTH}" -lt 1000 ] ; then
+    echo -n " "
+  fi
+  echo -n "`/sbin/blkid -s TYPE | grep "${DISK}:"  | awk -F\\" '{ print $2 }'`  "
+  LVM_VOL_MAJ="`ls -l /dev/${DISK} | awk '{ print $5 }' | sed -e s/,// `"
+  LVM_VOL_MIN="`ls -l /dev/${DISK} | awk '{ print $6 }' `"
+  LVM_MAPPER_NAME="`ls -l /dev/mapper/ | grep "${LVM_VOL_MAJ}, ${LVM_VOL_MIN}" | awk '{ print $10 }'`"
+  echo -n "`/sbin/blkid -s TYPE /dev/mapper/${LVM_MAPPER_NAME}  | awk -F\\" '{ print $2 }'`  "
+  echo -n "`df -hP 2>/dev/null | grep /dev/mapper/${LVM_MAPPER_NAME} | awk '{ print $6 }'` "
+  echo -n  "(${LVM_MAPPER_NAME})"
+  echo
+done
+
